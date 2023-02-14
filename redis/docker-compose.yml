@@ -1,0 +1,84 @@
+version: '3'
+networks:
+  app-tier:
+    driver: bridge
+
+services:
+  redis-master:
+    restart: always
+    image: 'bitnami/redis'
+    ports:
+      - "6379"
+    environment:
+      - REDIS_REPLICATION_MODE=master
+      - ALLOW_EMPTY_PASSWORD=yes
+    networks:
+      - app-tier
+
+  redis-slave-1:
+    restart: always
+    image: 'bitnami/redis'
+    ports:
+      - '6379'
+    depends_on:
+      - redis-master
+    environment:
+      - REDIS_REPLICATION_MODE=slave
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_MASTER_PORT_NUMBER=6379
+      - ALLOW_EMPTY_PASSWORD=yes
+    networks:
+      - app-tier
+
+  redis-slave-2:
+    restart: always
+    image: 'bitnami/redis'
+    ports:
+      - '6379'
+    depends_on:
+      - redis-master
+    environment:
+      - REDIS_REPLICATION_MODE=slave
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_MASTER_PORT_NUMBER=6379
+      - ALLOW_EMPTY_PASSWORD=yes
+    networks:
+      - app-tier
+
+  redis-sentinel:
+    restart: always
+    image: 'bitnami/redis-sentinel:latest'
+    depends_on:
+      - redis-master
+      - redis-slave-1
+      - redis-slave-2
+    ports:
+      - ':26379'
+    networks:
+      - app-tier
+    environment:
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=6000
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT=18000
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_SENTINEL_QUORUM=2
+    deploy:
+      replicas: 3
+
+  haproxy:
+    restart: always
+    image: 'haproxy:latest'
+    ports:
+      - "6379:6379"
+      - "1936:1936"
+    depends_on:
+      - redis-master
+      - redis-slave-1
+      - redis-slave-2
+    links:
+      - redis-master
+      - redis-slave-1
+      - redis-slave-2
+    networks:
+      - app-tier
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
